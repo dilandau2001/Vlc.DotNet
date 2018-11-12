@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using Vlc.DotNet.Core.Interops;
 using Vlc.DotNet.Core.Interops.Signatures;
 
@@ -9,7 +8,8 @@ namespace Vlc.DotNet.Core
 {
     public sealed partial class VlcMediaPlayer : IDisposable
     {
-        private VlcMediaPlayerInstance myMediaPlayerInstance;
+        private readonly VlcMediaPlayerInstance myMediaPlayerInstance;
+        private VlcMedia myCurrentMedia;
 
         public VlcMediaPlayer(DirectoryInfo vlcLibDirectory)
             : this(VlcManager.GetInstance(vlcLibDirectory))
@@ -70,6 +70,29 @@ namespace Vlc.DotNet.Core
         /// </summary>
         public VlcManager Manager { get; private set; }
 
+        /// <summary>
+        /// Sets some meta-information about the application. 
+        /// </summary>
+        /// <seealso cref="SetUserAgent" />
+        /// <param name="id">Java-style application identifier, e.g. "com.acme.foobar"</param>
+        /// <param name="version">application version numbers, e.g. "1.2.3"</param>
+        /// <param name="icon">application icon name, e.g. "foobar"</param>
+        public void SetAppId(string id, string version, string icon)
+        {
+            this.Manager.SetAppId(id, version, icon);
+        }
+
+        /// <summary>
+        /// Sets the application name.
+        /// LibVLC passes this as the user agent string when a protocol requires it.
+        /// </summary>
+        /// <param name="name">human-readable application name, e.g. "FooBar player 1.2.3"</param>
+        /// <param name="http">HTTP User Agent, e.g. "FooBar/1.2.3 Python/2.6.0"</param>
+        public void SetUserAgent(string name, string http)
+        {
+            this.Manager.SetUserAgent(name, http);
+        }
+
         public IntPtr VideoHostControlHandle
         {
             get { return Manager.GetMediaPlayerVideoHostHandle(myMediaPlayerInstance); }
@@ -90,7 +113,7 @@ namespace Vlc.DotNet.Core
             if (IsPlaying())
                 Stop();
 
-            VlcMedia.RemoveAll(this);
+            myCurrentMedia?.Dispose();
             myMediaPlayerInstance.Dispose();
             Manager.Dispose();
         }
@@ -122,19 +145,22 @@ namespace Vlc.DotNet.Core
 
         private VlcMedia SetMedia(VlcMedia media)
         {
-            var currentMedia = GetMedia();
-            if (currentMedia != null && currentMedia.MediaInstance != media.MediaInstance)
-                currentMedia.Dispose();
+            // If there is a previous media, dispose it.
+            myCurrentMedia?.Dispose();
+
+            // Set it to the media player.
             Manager.SetMediaToMediaPlayer(myMediaPlayerInstance, media.MediaInstance);
+
+            // Register Events.
+            media.Initialize();
+            myCurrentMedia = media;
+
             return media;
         }
 
         public VlcMedia GetMedia()
         {
-            var mediaPtr = Manager.GetMediaFromMediaPlayer(myMediaPlayerInstance);
-            if (mediaPtr.Pointer != IntPtr.Zero)
-                return new VlcMedia(this, mediaPtr);
-            return null;
+            return myCurrentMedia;
         }
 
         public void Play()
